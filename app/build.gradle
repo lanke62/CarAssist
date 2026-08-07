@@ -1,0 +1,83 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.carboot.assistant'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.carboot.assistant"
+        minSdk 24
+
+        // ⚠️ 关键决策：targetSdk 故意停留在 28。
+        // Android 10(Q) 起，WifiManager.setWifiEnabled() 对 targetSdk >= 29 的应用直接返回 false（静默失效），
+        // 而对 targetSdk <= 28 的应用仍然有效 —— 这是非 root、非系统签名下自动开 WiFi 唯一可靠的通路。
+        // 同时 targetSdk <= 30 可免去 Android 12 的 BLUETOOTH_CONNECT 运行时授权与前台服务后台启动限制。
+        // 车机为侧载安装，无需上架应用商店，因此不受 targetSdk 上架门槛约束。
+        targetSdk 28
+
+        // ===== 版本管理 =====
+        // 每次迭代交付：versionCode 必须 +1（覆盖安装以它为唯一判定），
+        // versionName 按语义版本递增（主.次.修订）。迭代明细见工程根目录 CHANGELOG.md。
+        versionCode 4
+        versionName "1.2.0"
+    }
+
+    signingConfigs {
+        // release 直接复用 debug 签名，方便车机侧载覆盖安装。
+        // 如需自有签名，替换 storeFile / storePassword / keyAlias / keyPassword 即可。
+        release {
+            storeFile file("${System.properties['user.home']}/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    // ===== APK 输出命名规范 =====
+    // 统一输出为 CarAssist-v<版本号>-<构建类型>.apk，便于区分版本与 release/debug。
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.outputFileName = "CarAssist-v${variant.versionName}-${variant.buildType.name}.apk"
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.9.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.8.0'
+    implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+}

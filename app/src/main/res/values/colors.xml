@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 白天模式（车机日间） -->
+    <color name="bg_gradient_top">#FFFFFFFF</color>
+    <color name="bg_gradient_bottom">#FFE6EBF5</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="surface_soft">#FFF5F7FB</color>
+    <color name="stroke">#1A0B1B34</color>
+    <color name="text_primary">#FF0E1726</color>
+    <color name="text_secondary">#FF5A6B85</color>
+    <color name="accent">#FF1F6FEB</color>
+    <color name="accent_soft">#141F6FEB</color>
+    <color name="ok">#FF12A150</color>
+    <color name="warn">#FFE08A00</color>
+    <color name="fail">#FFE0393E</color>
+    <color name="idle">#FF98A2B3</color>
+    <color name="log_bg">#FFF0F3F9</color>
+</resources>

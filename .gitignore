@@ -1,0 +1,41 @@
+# ===== Android 构建产物 =====
+*.apk
+!releases/*.apk
+*.aar
+*.aab
+*.ap_
+*.dex
+*.class
+
+# ===== 生成目录 =====
+bin/
+gen/
+out/
+build/
+app/build/
+.kotlin/
+.gradle/
+.gradle_tmp/
+release/
+
+# ===== 本地配置（含本机 SDK 路径，禁止提交）=====
+local.properties
+
+# ===== 日志 / 诊断 =====
+*.log
+build_log*.txt
+proc_out.txt
+ps_out.txt
+
+# ===== 工作区残留（路径拼写错误产生的垃圾目录）=====
+c/
+
+# ===== WorkBuddy / Agent 本地记忆（仅本地，含本机路径）=====
+.workbuddy/
+
+# ===== IDE / OS =====
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/

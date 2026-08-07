@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">车机常驻助手</string>
+    <string name="app_subtitle">CAR ASSIST · 开机自启 / 静默常驻</string>
+    <string name="channel_name">常驻服务</string>
+    <string name="channel_desc">保持车机助手后台运行</string>
+
+    <string name="card_bt_title">蓝牙自动回连</string>
+    <string name="card_wifi_title">WiFi 自动开启</string>
+    <string name="card_vol_title">音量锁定</string>
+    <string name="card_kill_title">清理高德进程</string>
+    <string name="card_launch_title">拉起 zLink</string>
+
+    <string name="btn_run_now">立即执行</string>
+    <string name="btn_launch_now">直接跳转</string>
+    <string name="btn_perm">权限自检</string>
+    <string name="btn_theme">主题切换</string>
+    <string name="btn_clear_log">清空日志</string>
+    <string name="settings_title">参数设置</string>
+    <string name="bt_adapter_count">蓝牙适配器数量（0=自动；双蓝牙车机设 2）</string>
+    <string name="bt_adapter_count_hint">0 表示按检测结果自动，设 2 让「蓝牙 2」开关出现</string>
+    <string name="log_title">运行日志</string>
+    <string name="save">保存设置</string>
+</resources>
