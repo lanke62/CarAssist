@@ -4,6 +4,27 @@
 
 ---
 
+## v1.3.0 (versionCode 5) — 2026-08-07
+**高德车机版进程清理：按拆解确认的 4 个进程名精确终结**
+
+- 【背景】对 `Auto_9.5.0.600013_release_signed.apk` 的 `AndroidManifest.xml` 拆解确认，
+  高德车机版（包名 `com.autonavi.amapauto`）运行时会拉起 4 个进程：主进程
+  `com.autonavi.amapauto`，以及私有子进程 `:selfupdate`（自升级）、`:push`（推送）、
+  `:locationservice`（定位）。
+- 【KillTask 重写】`task/KillTask.kt` 现显式编码这 4 个进程名（`KNOWN_AMAP_PROCESSES`）：
+  - 待清理包名 = 用户配置 + 已知车机版包名 `com.autonavi.amapauto`（去重），即使用户在设置里
+    把该包名从列表删掉，车机版这 4 个进程也一定会被纳入清理目标；
+  - 在原有「按包名 killBackgroundProcesses + 反射 forceStopPackage + shell am force-stop」
+    三通道基础上，新增「进程级兜底」：枚举 `runningAppProcesses`，凡命中已知进程名或配置包名
+    （含 `包名:xxx` 子进程）即按所属包名再补一次 `killBackgroundProcesses`，确保 3 个私有子进程
+    不被漏杀、即便被系统重新拉起也能在本轮再次命中；
+  - 残留核对改用「已知进程名精确匹配」，能精准报告仍存活的是哪一个进程（而非只报包名）。
+- 【已知限制】`killBackgroundProcesses` 只能杀后台进程；若高德主进程正处于前台（用户正在看地图），
+  主进程只能被降级、子进程仍会被杀，日志会标注"残留"的具体进程名，符合 README 已说明的行为。
+- 【版本】`versionCode 4 → 5`，`versionName 1.2.0 → 1.3.0`；`compileSdk 34` / `targetSdk 28` 不变。
+
+---
+
 ## v1.2.0 (versionCode 4) — 2026-08-07
 **状态栏「蓝牙 2」开关可控 · 双蓝牙检测加固**
 
