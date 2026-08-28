@@ -122,10 +122,21 @@ class BluetoothTask(private val ctx: Context) {
     private fun handleAdapter(a: BtAdapters.Entry): Pair<Boolean, Boolean> {
         val adapter = a.adapter
         if (adapter == null) {
-            Status.btItems[a.index] = Status.Item(
-                Status.Level.FAIL,
-                "未检测到该蓝牙（可能隐藏API被拦截，或数量设置偏大）"
-            )
+            // 占位卡：按信息源精确说明当前状态
+            val info = a.info
+            val detail = when {
+                info != null && info.enabled == true ->
+                    "${if (info.viaSysfs) "sysfs" else "dumpsys"} 发现 ${info.mac} · 已开启（反射未拿到对象，需 hidden_api_policy 后可控）"
+                info != null && info.enabled == false ->
+                    "${if (info.viaSysfs) "sysfs" else "dumpsys"} 发现 ${info.mac} · 已关闭（反射未拿到对象，需 hidden_api_policy 后可控）"
+                info != null ->
+                    "${if (info.viaSysfs) "sysfs" else "dumpsys"} 发现 ${info.mac} · 状态未知（反射未拿到对象）"
+                a.expectedMac != null ->
+                    "未检测到该蓝牙（优先级 MAC：${a.expectedMac}）（可能隐藏API被拦截）"
+                else ->
+                    "未检测到该蓝牙（可能隐藏API被拦截，或数量设置偏大）"
+            }
+            Status.btItems[a.index] = Status.Item(Status.Level.FAIL, detail)
             return false to false
         }
 

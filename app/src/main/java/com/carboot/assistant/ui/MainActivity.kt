@@ -25,9 +25,12 @@ import com.carboot.assistant.databinding.ActivityMainBinding
 import com.carboot.assistant.databinding.ItemStatusCardBinding
 import com.carboot.assistant.core.CarAssistService
 import com.carboot.assistant.core.Status
+import com.carboot.assistant.task.BluetoothTask
 import com.carboot.assistant.task.BtAdapters
+import com.carboot.assistant.task.KillTask
 import com.carboot.assistant.task.LaunchTask
 import com.carboot.assistant.task.VolumeTask
+import com.carboot.assistant.task.WifiTask
 import com.carboot.assistant.util.Logx
 import com.carboot.assistant.util.Prefs
 
@@ -40,6 +43,13 @@ import com.carboot.assistant.util.Prefs
  *  - 右侧：运行流程说明 + 运行日志。
  *
  * 所有能力都在常驻服务里跑，关掉界面不影响功能。
+ *
+ * **开关逻辑规则（v1.3.0 起）**：
+ *  - 开关 ON = 该操作执行成功并正在生效（如 WiFi 确实已开、蓝牙确实已连、高德确实已杀）；
+ *  - 开关 OFF = 操作尚未执行 / 未成功 / 已被关闭；
+ *  - 用户从 OFF 拨到 ON：立刻触发对应操作，开关暂不跳转，左侧显示转圈等待动画；
+ *    操作成功后才跳到 ON（失败则保持 OFF）；
+ *  - 用户从 ON 拨到 OFF：关闭该功能自动维护，状态重置为等待。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -52,6 +62,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardVol: ItemStatusCardBinding
     private lateinit var cardKill: ItemStatusCardBinding
     private lateinit var cardLaunch: ItemStatusCardBinding
+
+    /**
+     * paint() 在更新 toggle.isChecked 期间设为 true，防止 listener 被 programmatic
+     * setChecked 触发后误判为用户手动操作。
+     */
+    private var painting = false
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -140,29 +156,88 @@ class MainActivity : AppCompatActivity() {
     private fun buildCards() {
         val inf = LayoutInflater.from(this)
 
-        // 蓝牙适配器卡片：每个适配器独占一行，独立开关（可随数量设置重建）
-        buildBtCards()
-
-        // 其余四项固定卡片
-        cardWifi = ItemStatusCardBinding.inflate(inf, vb.llStatus, true)
-        cardVol = ItemStatusCardBinding.inflate(inf, vb.llStatus, true)
-        cardKill = ItemStatusCardBinding.inflate(inf, vb.llStatus, true)
-        cardLaunch = ItemStatusCardBinding.inflate(inf, vb.llStatus, true)
+        // 固定功能卡片先 inflate（不挂载），便于精确控制顺序
+        cardWifi = ItemStatusCardBinding.inflate(inf, vb.llStatus, false)
+        cardVol = ItemStatusCardBinding.inflate(inf, vb.llStatus, false)
+        cardKill = ItemStatusCardBinding.inflate(inf, vb.llStatus, false)
+        cardLaunch = ItemStatusCardBinding.inflate(inf, vb.llStatus, false)
 
         cardWifi.title.text = "WiFi 自动开启"
         cardVol.title.text = "音量锁定"
         cardKill.title.text = "清理高德进程"
         cardLaunch.title.text = "拉起目标应用"
 
-        cardWifi.toggle.isChecked = Prefs.enableWifi
-        cardVol.toggle.isChecked = Prefs.enableVolume
-        cardKill.toggle.isChecked = Prefs.enableKillAmap
-        cardLaunch.toggle.isChecked = Prefs.enableLaunch
+        // 所有 toggle 以实际执行状态为准，不再用 Prefs 默认值绑定
+        cardWifi.toggle.isChecked = false
+        cardVol.toggle.isChecked = false
+        cardKill.toggle.isChecked = false
+        cardLaunch.toggle.isChecked = false
 
-        cardWifi.toggle.setOnCheckedChangeListener { _, v -> Prefs.enableWifi = v }
-        cardVol.toggle.setOnCheckedChangeListener { _, v -> Prefs.enableVolume = v }
-        cardKill.toggle.setOnCheckedChangeListener { _, v -> Prefs.enableKillAmap = v }
-        cardLaunch.toggle.setOnCheckedChangeListener { _, v -> Prefs.enableLaunch = v }
+        bindToggle(cardWifi, Status.wifi,
+            getEnabled = { Prefs.enableWifi }, setEnabled = { Prefs.enableWifi = it },
+            execute = { WifiTask(applicationContext).ensure() })
+        bindToggle(cardVol, Status.volume,
+            getEnabled = { Prefs.enableVolume }, setEnabled = { Prefs.enableVolume = it },
+            execute = { VolumeTask(applicationContext).apply() })
+        bindToggle(cardKill, Status.killAmap,
+            getEnabled = { Prefs.enableKillAmap }, setEnabled = { Prefs.enableKillAmap = it },
+            execute = { KillTask(applicationContext).killAll() })
+        bindToggle(cardLaunch, Status.launch,
+            getEnabled = { Prefs.enableLaunch }, setEnabled = { Prefs.enableLaunch = it },
+            execute = { LaunchTask(applicationContext).launch() })
+
+        // 1) 清理高德进程固定放在最顶部（用户要求：左侧状态开关第一位）
+        vb.llStatus.addView(cardKill.root, 0)
+
+        // 2) 蓝牙适配器卡片插在「清理高德」之后（buildBtCards 内部按 +1 偏移插入）
+        buildBtCards()
+
+        // 3) 其余功能卡片接在蓝牙卡之后
+        vb.llStatus.addView(cardWifi.root)
+        vb.llStatus.addView(cardVol.root)
+        vb.llStatus.addView(cardLaunch.root)
+    }
+
+    /**
+     * 为一张状态卡绑定「状态驱动」开关行为：
+     *  - OFF → ON：立即在后台执行操作，显示转圈等待，成功才点亮 ON；
+     *  - ON  → OFF：关闭功能自动维护，状态置为 IDLE。
+     */
+    private fun bindToggle(
+        card: ItemStatusCardBinding,
+        item: Status.Item,
+        getEnabled: () -> Boolean,
+        setEnabled: (Boolean) -> Unit,
+        execute: () -> Unit
+    ) {
+        card.toggle.setOnCheckedChangeListener { _, isChecked ->
+            if (painting) return@setOnCheckedChangeListener
+            if (item.level == Status.Level.LOADING) return@setOnCheckedChangeListener
+
+            if (isChecked) {
+                // ① 用户拨到 ON：立刻执行，先展示 loading
+                setEnabled(true)
+                Status.set(item, Status.Level.LOADING, "执行中…")
+                // 手动把 toggle 弹回 OFF（下一帧 paint() 会统一绘制），触发 loading 视觉
+                painting = true
+                card.toggle.isChecked = false
+                painting = false
+                card.progress.visibility = View.VISIBLE
+                card.dot.visibility = View.GONE
+                card.detail.text = "执行中…"
+                card.toggle.isEnabled = false
+
+                Thread {
+                    runCatching { execute() }.onFailure { Logx.e("手动执行操作异常", it) }
+                    ui.post { Logx.notifyState(this@MainActivity) }
+                }.start()
+            } else {
+                // ② 用户拨到 OFF：关闭功能
+                setEnabled(false)
+                Status.set(item, Status.Level.IDLE, "已关闭")
+                paint(card, item)
+            }
+        }
     }
 
     /**
@@ -178,12 +253,30 @@ class MainActivity : AppCompatActivity() {
         val inf = LayoutInflater.from(this)
         for ((i, a) in BtAdapters.detect(this).withIndex()) {
             val b = ItemStatusCardBinding.inflate(inf, vb.llStatus, false)
-            b.title.text = a.label
-            b.toggle.isChecked = Prefs.isBtAdapterEnabled(a.index)
-            b.toggle.setOnCheckedChangeListener { _, v -> Prefs.setBtAdapterEnabled(a.index, v) }
-            // 始终插到状态列表最前面，保持「蓝牙卡在最上方」的布局
-            vb.llStatus.addView(b.root, i)
-            btCards.add(a.index to b)
+            // 标题带上 MAC，便于主/副适配器一眼区分
+            val realMac = runCatching { a.adapter?.address }.getOrNull()
+            val mac = realMac ?: a.info?.mac ?: a.expectedMac
+            val suffix = when {
+                realMac != null -> ""                                  // 反射拿到对象，可控制
+                a.info?.viaSysfs == true -> "（sysfs 硬件层，待解锁 API）"  // 内核层发现
+                a.info != null -> "（dumpsys 系统层，待解锁 API）"           // 系统层发现
+                a.expectedMac != null -> "（待检测）"                     // 完全没拿到
+                else -> ""
+            }
+            b.title.text = if (mac != null) "${a.label} · $mac$suffix" else a.label
+            b.toggle.isChecked = false
+
+            val idx = a.index
+            val statusItem = Status.btItems.getOrPut(idx) { Status.Item() }
+            bindToggle(b, statusItem,
+                getEnabled = { Prefs.isBtAdapterEnabled(idx) },
+                setEnabled = { Prefs.setBtAdapterEnabled(idx, it) },
+                execute = { BluetoothTask(applicationContext).ensure() })
+
+            // 插到状态列表「清理高德」之后（index 0 已被清理高德占据，故偏移 +1），
+            // 保持「清理高德 → 蓝牙卡 → WiFi/音量/拉起」的整体顺序
+            vb.llStatus.addView(b.root, i + 1)
+            btCards.add(idx to b)
         }
     }
 
@@ -199,21 +292,44 @@ class MainActivity : AppCompatActivity() {
         val running = Status.serviceRunning
         vb.pillService.text =
             if (running) "常驻中 · 巡检 #${Status.loopCount}" else "服务未运行"
-        vb.pillService.setTextColor(color(if (running) com.carboot.assistant.R.color.ok else com.carboot.assistant.R.color.fail))
+        vb.pillService.setTextColor(color(
+            if (running) com.carboot.assistant.R.color.ok else com.carboot.assistant.R.color.fail))
 
         renderEnv()
     }
 
+    /**
+     * 绘制一张状态卡片（含开关状态绑定）。
+     * 以 Status.xxx 的实际执行结果驱动 toggle isChecked，而非 Prefs。
+     */
     private fun paint(card: ItemStatusCardBinding, item: Status.Item) {
-        val c = when (item.level) {
-            Status.Level.OK -> com.carboot.assistant.R.color.ok
-            Status.Level.WARN -> com.carboot.assistant.R.color.warn
-            Status.Level.FAIL -> com.carboot.assistant.R.color.fail
-            Status.Level.IDLE -> com.carboot.assistant.R.color.idle
+        val isOk = item.level == Status.Level.OK
+        val isLoading = item.level == Status.Level.LOADING
+
+        // 1) 开关：抑制 listener 以免被当成用户手动操作
+        painting = true
+        card.toggle.isChecked = isOk
+        painting = false
+
+        // 2) Loading 动画
+        card.progress.visibility = if (isLoading) View.VISIBLE else View.GONE
+        card.dot.visibility      = if (isLoading) View.GONE else View.VISIBLE
+        card.toggle.isEnabled    = !isLoading
+
+        // 3) 圆点颜色
+        if (!isLoading) {
+            val c = when (item.level) {
+                Status.Level.OK -> com.carboot.assistant.R.color.ok
+                Status.Level.WARN -> com.carboot.assistant.R.color.warn
+                Status.Level.FAIL -> com.carboot.assistant.R.color.fail
+                else -> com.carboot.assistant.R.color.idle
+            }
+            val d = card.dot.background.mutate()
+            d.setTint(color(c))
+            card.dot.background = d
         }
-        val d = card.dot.background.mutate()
-        d.setTint(color(c))
-        card.dot.background = d
+
+        // 4) 详情文字
         card.detail.text = item.detail
     }
 
@@ -256,6 +372,7 @@ class MainActivity : AppCompatActivity() {
         vb.edBootDelay.setText(Prefs.bootDelaySec.toString())
         vb.edLaunchDelay.setText(Prefs.launchDelaySec.toString())
         vb.edBtCount.setText(Prefs.btAdapterForceCount.toString())
+        vb.edBtPriority.setText(Prefs.btAdapterPriority)
         vb.btnTheme.text = when (Prefs.nightMode) {
             1 -> "白天"
             2 -> "夜间"
@@ -267,14 +384,15 @@ class MainActivity : AppCompatActivity() {
         Prefs.volumeLevel = vb.edVolume.text.toString().toIntOrNull() ?: 10
         Prefs.targetPackage = vb.edTarget.text.toString()
         Prefs.amapPackages = vb.edAmap.text.toString()
-        Prefs.loopIntervalSec = vb.edLoop.text.toString().toIntOrNull() ?: 8
-        Prefs.bootDelaySec = vb.edBootDelay.text.toString().toIntOrNull() ?: 12
-        Prefs.launchDelaySec = vb.edLaunchDelay.text.toString().toIntOrNull() ?: 6
+        Prefs.loopIntervalSec = vb.edLoop.text.toString().toIntOrNull() ?: 3
+        Prefs.bootDelaySec = vb.edBootDelay.text.toString().toIntOrNull() ?: 5
+        Prefs.launchDelaySec = vb.edLaunchDelay.text.toString().toIntOrNull() ?: 5
         Prefs.btAdapterForceCount = vb.edBtCount.text.toString().toIntOrNull()?.coerceIn(0, 4) ?: 0
+        Prefs.btAdapterPriority = vb.edBtPriority.text.toString()
         loadSettings()
         renderFlow()
-        buildBtCards() // 蓝牙数量可能变化，立即重建状态栏卡片
-        Logx.i("参数已保存：音量=${Prefs.volumeLevel} 目标=${Prefs.targetPackage} 巡检=${Prefs.loopIntervalSec}s 蓝牙适配器数=${Prefs.btAdapterForceCount}")
+        buildBtCards() // 蓝牙数量 / 优先级变化后，立即重建状态栏卡片
+        Logx.i("参数已保存：音量=${Prefs.volumeLevel} 目标=${Prefs.targetPackage} 巡检=${Prefs.loopIntervalSec}s 蓝牙适配器数=${Prefs.btAdapterForceCount} 优先级=${Prefs.btAdapterPriority}")
         toast("已保存，蓝牙卡片已更新")
     }
 
@@ -344,7 +462,7 @@ class MainActivity : AppCompatActivity() {
             append("   ↓  延迟 ${Prefs.launchDelaySec}s（拉起前再补杀一次）\n")
             append("⑤ 拉起并跳转：${Prefs.targetPackage}\n")
             append("   ↓\n")
-            append("每 ${Prefs.loopIntervalSec}s 巡检蓝牙 / WiFi，异常即刻自愈；\n")
+            append("每 ${Prefs.loopIntervalSec}s 巡检蓝牙 / WiFi / 高德，异常即刻自愈；\n")
             append("同时监听系统广播，断连时秒级响应。")
         }
     }

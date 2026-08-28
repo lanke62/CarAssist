@@ -36,6 +36,28 @@ object Prefs {
         get() = sp.getInt("bt_force_count", 0)
         set(v) = sp.edit().putInt("bt_force_count", v.coerceIn(0, 4)).apply()
 
+    /**
+     * 蓝牙适配器 MAC 优先级列表（逗号/空格/换行分隔）。
+     *
+     * 用于双蓝牙车机的「主/副适配器」调换：
+     *  - 第一个 MAC 在列表中的适配器强制排在「蓝牙 1」（主），其余按顺序排到后续槽位；
+     *  - 如果某个优先 MAC 暂未被反射检测到，仍为它预留占位卡（便于用户看到该槽位缺失）；
+     *  - 没有列入优先级的已检测适配器按反射顺序追加到末尾。
+     *
+     * 例如：`00:87:61:60:34:04, 08:18:57:A9:D7:C1` → 手机蓝牙(主) + OBD 蓝牙(副)。
+     */
+    var btAdapterPriority: String
+        get() = sp.getString("bt_priority", "") ?: ""
+        set(v) = sp.edit().putString("bt_priority", v.trim()).apply()
+
+    /** 解析后的优先级 MAC 列表（已校验为合法 MAC，统一大写） */
+    fun btAdapterPriorityMacs(): List<String> =
+        btAdapterPriority.split(",", " ", "\n", "，", ";", "；")
+            .map { it.trim().uppercase() }
+            .filter { MAC_REGEX.matches(it) }
+
+    private val MAC_REGEX = Regex("^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
+
     var enableWifi: Boolean
         get() = sp.getBoolean("en_wifi", true)
         set(v) = sp.edit().putBoolean("en_wifi", v).apply()
@@ -70,17 +92,17 @@ object Prefs {
 
     /** 实时巡检周期（秒） */
     var loopIntervalSec: Int
-        get() = sp.getInt("loop_sec", 8)
+        get() = sp.getInt("loop_sec", 3)
         set(v) = sp.edit().putInt("loop_sec", v.coerceIn(3, 300)).apply()
 
     /** 开机后延迟多少秒开始执行（等系统服务就绪） */
     var bootDelaySec: Int
-        get() = sp.getInt("boot_delay", 12)
+        get() = sp.getInt("boot_delay", 5)
         set(v) = sp.edit().putInt("boot_delay", v.coerceIn(0, 120)).apply()
 
     /** 前置动作全部下发后，再延迟多少秒拉起目标应用 */
     var launchDelaySec: Int
-        get() = sp.getInt("launch_delay", 6)
+        get() = sp.getInt("launch_delay", 5)
         set(v) = sp.edit().putInt("launch_delay", v.coerceIn(0, 120)).apply()
 
     /** 上次成功连接的蓝牙设备 MAC，优先回连 */

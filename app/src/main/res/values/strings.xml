@@ -18,6 +18,8 @@
     <string name="settings_title">参数设置</string>
     <string name="bt_adapter_count">蓝牙适配器数量（0=自动；双蓝牙车机设 2）</string>
     <string name="bt_adapter_count_hint">0 表示按检测结果自动，设 2 让「蓝牙 2」开关出现</string>
+    <string name="bt_adapter_priority">蓝牙适配器 MAC 优先级（逗号/空格分隔）</string>
+    <string name="bt_adapter_priority_hint">例：00:87:61:60:34:04, 08:18:57:A9:D7:C1\n第一个 MAC 强制排在「蓝牙 1」（主）</string>
     <string name="log_title">运行日志</string>
     <string name="save">保存设置</string>
 </resources>

@@ -131,4 +131,15 @@ class KillTask(private val ctx: Context) {
         ctx.packageManager.getPackageInfo(pkg, 0)
         true
     }.getOrElse { it !is PackageManager.NameNotFoundException }
+
+    /** 巡检用：检测高德进程是否重新出现（已杀后又自启），更新 Status。 */
+    fun checkKill() {
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return
+        val pkgs = (Prefs.amapList() + AMAP_AUTO_PKG).toSet().filter { isInstalled(it) }
+        val alive = aliveAmapProcesses(am, pkgs)
+        if (alive.isNotEmpty()) {
+            Logx.w("高德进程重新出现：${alive.joinToString()}")
+            Status.set(Status.killAmap, Status.Level.WARN, "高德重启：${alive.joinToString()}")
+        }
+    }
 }

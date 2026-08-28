@@ -5,7 +5,7 @@ package com.carboot.assistant.core
  */
 object Status {
 
-    enum class Level { IDLE, OK, WARN, FAIL }
+    enum class Level { IDLE, LOADING, OK, WARN, FAIL }
 
     data class Item(
         var level: Level = Level.IDLE,

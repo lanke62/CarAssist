@@ -4,6 +4,109 @@
 
 ---
 
+## v1.3.7 (versionCode 12) — 2026-08-24
+**UI 顺序微调 · 巡检/延迟默认值调整 · 第二个蓝牙诊断增强**
+
+- 【状态卡置顶】左侧状态开关区把「清理高德进程」卡片放到整体第一位（蓝牙卡之前），
+  顺序变为：清理高德 → 蓝牙1/蓝牙2 → WiFi → 音量 → 拉起目标应用。
+- 【默认时间调整】巡检周期默认 8s → 3s；开机延迟默认 12s → 5s；拉起延迟默认 6s → 5s
+  （已同步 UI「参数设置」的兜底值；若车机此前已保存过旧值，需手动重存一次才生效）。
+- 【蓝牙诊断增强】`task/BtAdapters.kt`：当硬件层（sysfs）发现多个物理蓝牙芯片、但反射只拿到 1 个
+  可控对象时，日志明确提示第二个蓝牙被 ROM 隐藏 API 拦截，并给出一次性 adb 解锁命令。
+- 【版本】`versionCode 11 → 12`，`versionName 1.3.6 → 1.3.7`；`compileSdk 34` / `targetSdk 28` 不变。
+
+---
+
+## v1.3.6 (versionCode 11) — 2026-08-20
+**蓝牙适配器检测：新增内核 sysfs + getprop 硬件层通道**
+
+- 【sysfs 硬件层检测】`task/BtAdapters.kt` 新增 `detectViaSysfs()`：直接枚举
+  `/sys/class/bluetooth/hci*/` 目录，读取每个物理蓝牙芯片的 `address`（MAC）与
+  `type`（PRIMARY/AMP/LE）。这是内核导出的世界可读接口，**无需 root、无需隐藏 API**，
+  能在反射与 dumpsys 都失败时，从硬件层确认车机到底有几个蓝牙芯片、各是什么 MAC。
+- 【getprop 诊断】新增 `detectViaGetprop()`，抓取蓝牙相关系统属性（默认接口名、bdaddr 路径等）
+  写入日志，辅助判断车机蓝牙驱动形态。
+- 【检测信息统一】把 dumpsys/sysfs 检测结果合并为 `Entry.info`（`Info` 数据类，含 mac/enabled/name/hciType/viaSysfs），
+  按 MAC 去重；`BluetoothTask` 占位卡与 `MainActivity` 卡片标题据此精确标注来源：
+  「sysfs 硬件层」「dumpsys 系统层」「待检测」。
+- 【三路交叉验证】检测 = 反射（可控制）+ dumpsys（系统层）+ sysfs（硬件层），
+  日志逐条打印 `【蓝牙检测】` 前缀的检测结果，方便现场排查。
+- 【版本】`versionCode 10 → 11`，`versionName 1.3.5 → 1.3.6`。
+
+---
+
+## v1.3.5 (versionCode 10) — 2026-08-11
+**启动时自动尝试解除 hidden_api_policy 限制**
+
+- 【自动解除隐藏 API】`core/CarAssistService.kt` 新增 `tryUnlockHiddenApi()`，
+  启动时用两条通道（`Settings.Global.putString` + shell `settings put global`）
+  写入 `hidden_api_policy` / `_pre_p_apps` / `_p_apps` = 1，让双蓝牙反射能拿到第二个适配器。
+  严格 ROM 上无 `WRITE_SECURE_SETTINGS` 权限会失败（日志提示手动 adb），但该设置为持久化，
+  成功一次后无需重复。
+- 【版本】`versionCode 9 → 10`，`versionName 1.3.4 → 1.3.5`。
+
+---
+
+## v1.3.4 (versionCode 9) — 2026-08-11
+**蓝牙适配器检测：新增 dumpsys bluetooth_manager 系统层通道**
+
+- 【dumpsys 检测】`task/BtAdapters.kt` 新增 `detectViaDumpsys()`：解析
+  `dumpsys bluetooth_manager`（走 Binder 直连，不受隐藏 API 拦截），提取所有适配器的
+  MAC、开关状态、名称，即使反射被拦也能看到第二个适配器的存在与状态。
+- 【占位卡增强】占位卡详情按信息源精确显示「dumpsys 发现 XX · 已开启/已关闭」。
+- 【版本】`versionCode 8 → 9`，`versionName 1.3.3 → 1.3.4`。
+
+---
+
+## v1.3.3 (versionCode 8) — 2026-08-11
+**蓝牙适配器 MAC 优先级：支持主/副蓝牙调换**
+
+- 【新增 MAC 优先级】`Prefs.kt` 新增 `btAdapterPriority`（逗号/空格分隔的 MAC 列表）；
+  `task/BtAdapters.kt` 重构 `detect()`：按优先级顺序填充「蓝牙 1」「蓝牙 2」等槽位，
+  未列入优先级的已检测适配器追加到末尾；优先 MAC 暂未被反射检测到时仍为其保留占位卡，
+  便于用户知道「缺谁」。
+- 【占位卡优化】`Entry` 新增 `expectedMac` 字段；`BluetoothTask.handleAdapter` 在占位卡上
+  显示「未检测到该蓝牙（优先级 MAC：AA:BB:CC:DD:EE:FF）」。
+- 【标题带 MAC】`MainActivity.buildBtCards()` 把 MAC 加到卡片标题，例如
+  「蓝牙 1 · 00:87:61:60:34:04」或「蓝牙 1 · 00:87:61...（待检测）」，调换结果一目了然。
+- 【设置 UI】`activity_main.xml` / `strings.xml` 新增「蓝牙适配器 MAC 优先级」输入框；
+  示例：`00:87:61:60:34:04, 08:18:57:A9:D7:C1`（手机蓝牙主，OBD 蓝牙副）。
+- 【配合动作】若填入的 MAC 未被检测到，建议在车机执行：
+  `adb shell settings put global hidden_api_policy 1`
+  解锁隐藏 API 反射；日志会打印"优先级 MAC 未检测到：..."及提示。
+- 【版本】`versionCode 7 → 8`，`versionName 1.3.2 → 1.3.3`；`compileSdk 34` / `targetSdk 28` 不变。
+
+---
+
+## v1.3.2 (versionCode 7) — 2026-08-08
+**WiFi 通道重排：shell 优先尝试静默开启，绕过车机系统「是否同意」弹窗**
+
+- 【通道顺序优化】`task/WifiTask.kt` 把 `svc wifi enable`（shell）从第 3 通道提到第 1 通道：
+  shell 命令走 Binder 直连 `WifiService`，绕过 `WifiManager` 的权限拦截层，
+  在不少车机 ROM 上可静默开启 WiFi，不弹"该应用想要开启 WiFi，是否同意？"确认框；
+  失败再退回 `setWifiEnabled()` / 反射 / WiFi 面板兜底。
+- 【版本】`versionCode 6 → 7`，`versionName 1.3.1 → 1.3.2`。
+
+---
+
+## v1.3.1 (versionCode 6) — 2026-08-08
+**状态栏开关改为执行状态驱动（手机设置风格）· 新增加载动画与高德巡检**
+
+- 【开关行为重写】`ui/MainActivity.kt` 中所有状态卡片开关（WiFi / 蓝牙 / 音量 / 杀高德 / 拉起），
+  从「功能启用/关闭」改为**「实际执行状态驱动」**（类似手机设置里的 WiFi 开关）：
+  - 开关 ON = 该操作执行成功并正在生效（如 WiFi 确实已开、蓝牙确实已连）；
+  - 开关 OFF = 操作尚未执行 / 未成功 / 已被关闭；
+  - 从 OFF 拨到 ON：立刻在后台执行对应操作，开关暂保持 OFF 并显示转圈动画，成功后才跳到 ON；
+  - 从 ON 拨到 OFF：关闭该功能的自动维护，状态重置为「已关闭」。
+- 【加载动画】`item_status_card.xml` 新增小号 `ProgressBar`（转圈），`Status.Level` 新增 `LOADING`
+  级别；执行中时替换彩色圆点为旋转动画，开关暂且禁用防止连击。
+- 【高德巡检】`CarAssistService` 巡检循环新增高德进程检测：若杀高德成功后又被系统重新拉起，
+  状态栏「清理高德进程」开关会自动从 ON 跳回 OFF（WARN），避免开关虚假点亮。
+- 【`KillTask.checkKill()`】新增轻量巡检方法，仅检查进程是否复活并更新 Status，不触发重复清理。
+- 【版本】`versionCode 5 → 6`，`versionName 1.3.0 → 1.3.1`；`compileSdk 34` / `targetSdk 28` 不变。
+
+---
+
 ## v1.3.0 (versionCode 5) — 2026-08-07
 **高德车机版进程清理：按拆解确认的 4 个进程名精确终结**
 

@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.carboot.assistant.R
 import com.carboot.assistant.task.BluetoothTask
@@ -29,6 +30,7 @@ import com.carboot.assistant.task.WifiTask
 import com.carboot.assistant.ui.MainActivity
 import com.carboot.assistant.util.Logx
 import com.carboot.assistant.util.Prefs
+import com.carboot.assistant.util.Shell
 
 /**
  * 需求 6：后台静默常驻，不退出。
@@ -93,6 +95,11 @@ class CarAssistService : Service() {
         super.onCreate()
         Prefs.init(this)
         Logx.init(this)
+
+        // 启动时尝试自动解除隐藏 API 限制（让双蓝牙反射能拿到第二个适配器）。
+        // 虽为 global 表（需 signature 权限），但部分车机 ROM 放宽了限制，App 侧调用也能成功。
+        // 失败不妨碍后续功能——只是反射仍会被拦截，蓝牙检测退回 dumpsys 通道。
+        tryUnlockHiddenApi()
 
         worker = HandlerThread("car-assist-worker").apply { start() }
         bg = Handler(worker.looper)
@@ -258,6 +265,10 @@ class CarAssistService : Service() {
 
         if (Prefs.enableWifi) safeStep("WiFi巡检") { wifiTask.ensure() }
         if (btTask.hasEnabledAdapter()) safeStep("蓝牙巡检") { btTask.ensure() }
+        // 高德巡检：仅检查「已杀成功」后是否被系统重新拉起，不影响其他步骤
+        if (Prefs.enableKillAmap && Status.killAmap.level == Status.Level.OK) {
+            safeStep("高德巡检") { killTask.checkKill() }
+        }
 
         updateNotification(summary())
         Logx.notifyState(this)
@@ -377,6 +388,47 @@ class CarAssistService : Service() {
     private fun releaseWakeLock() {
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
+    }
+
+    /**
+     * 启动时尝试解除隐藏 API 限制。
+     *
+     * 这条设置的权限是 `WRITE_SECURE_SETTINGS`（signature|privileged），在严格 ROM 上
+     * 第三方 App 调用会失败。但部分车机 ROM 放宽了限制，App 侧也能写:
+     *   - 通道 1：Settings.Global.putString（直接 content provider 写入）
+     *   - 通道 2：shell `settings put global`（通过 cmd 二进制）
+     * 成功则在日志中标注"已自动解除"，失败则记录命令供用户手动执行。
+     * 该设置是持久化的（存在 global 表里），开机生效一次即可，不需要每次启动都写。
+     */
+    private fun tryUnlockHiddenApi() {
+        val keys = listOf(
+            "hidden_api_policy",
+            "hidden_api_policy_pre_p_apps",
+            "hidden_api_policy_p_apps"
+        )
+        var anyOk = false
+
+        for (key in keys) {
+            // 通道 1：直接 ContentResolver 写入
+            val ok1 = runCatching {
+                Settings.Global.putString(contentResolver, key, "1")
+                true
+            }.getOrDefault(false)
+            if (ok1) { anyOk = true; continue }
+
+            // 通道 2：shell 兜底
+            val r = Shell.exec("settings put global $key 1", 1500)
+            if (r.code == 0) { anyOk = true }
+        }
+
+        if (anyOk) {
+            Logx.i("已自动解除隐藏 API 限制（hidden_api_policy=1），蓝牙反射应可拿到全部适配器")
+        } else {
+            Logx.w("自动解除隐藏 API 限制失败（本 ROM 可能需要手动执行）：\n" +
+                "  adb shell settings put global hidden_api_policy 1\n" +
+                "  adb shell settings put global hidden_api_policy_pre_p_apps 1\n" +
+                "  adb shell settings put global hidden_api_policy_p_apps 1")
+        }
     }
 
     private fun sleep(ms: Long) = runCatching { Thread.sleep(ms) }

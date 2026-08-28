@@ -357,6 +357,24 @@
                     android:importantForAutofill="no"
                     android:inputType="number" />
 
+                <TextView style="@style/FieldLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/bt_adapter_priority" />
+
+                <EditText
+                    android:id="@+id/edBtPriority"
+                    style="@style/FieldInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:hint="@string/bt_adapter_priority_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:singleLine="false"
+                    android:maxLines="2" />
+
                 <TextView
                     android:id="@+id/btnSave"
                     android:layout_width="match_parent"
